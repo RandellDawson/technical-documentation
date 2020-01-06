@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html >
+<head>
+    <meta charset="UTF-8">
+    <title>Technical Documentation Page</title>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/5.0.0/normalize.min.css">
+
+    <link rel='stylesheet prefetch' href='https://fonts.googleapis.com/css?family=Slabo+27px'>
+
+    <link rel="stylesheet" href="css/style.css">
+
+
+</head>
+
+<body>
+    <nav id="navbar">
+        <header>RETS to MSSQL Database</header>
+        <a href="#Why_Use_RETS" class="nav-link">Why Use RETS</a>
+        <a href="#Download_and_Install_PHRETS" class="nav-link">Download and Install PHRETS</a>
+        <a href="#Create_Database_Tables" class="nav-link">Create Database Tables</a>
+        <a href="#Interacting_with_RETS" class="nav-link">Interacting with RETS</a>
+        <a href="#Running_a_RETS_Query" class="nav-link">Running a RETS Query</a>
+        <a href="#Updating_the_Database_Records" class="nav-link">Updating the Database Records</a>
+        <a href="#Putting_it_all_Together" class="nav-link">Putting it all Together</a>
+    </nav>
+
+    <main id="main-doc">
+        <section id="Why_Use_RETS" class="main-section">
+            <header>Why Use RETS</header>
+            <article>
+                <p>When developing a real estate website, the most two important pages are a listings page and a search page.  The listings page will display all the current listings of an agent/company.  The search page will allow visitors to search any property available in the local area’s MLS (Multiple Listing Service).</p>
+
+                <p>The easiest way to keep a website’s listings page would be to simply query the MLS’s RETS (Real Estate Transaction Server) each time the page is requested. While this would work for agents and companies without many listings, it would put quite a strain on the MLS RETS for large numbers of listings.  In fact, if the site has a high level traffic, the MLS would probably not allow a high frequency of pulls per day.</p>
+
+                <p>The alternative method of keeping the listings page and ultimately adding a search page for all the MLS listings is to have a separate local database which can be “synced” to the RETS multiple times per day and have the website pull the listings from the local database.</p>
+
+                <p>The following information will use PHP and and PHP library called PHRETS to pull listings from a RETS and insert the records into a local MS SQL server.  While this documentation is not meant to explain all the details of a complete synchronization, the reader will understand how to at least pull listings data and insert the data into a MS SQL 2008/2012 database.</p>
+            </article>
+        </section>
+        <section id="Download_and_Install_PHRETS" class="main-section">
+            <header>Download and Install PHRETS</header>
+            <article>
+                <p>
+                    You can download a copy of PHRETS from Troy Davisson’s github page at following link:<br><br>
+                    <a target="_blank"  href="https://github.com/troydavisson/PHRETS/tree/1.x">https://github.com/troydavisson/PHRETS/tree/1.x</a><br><br>
+                    Just put the phrets.php file in the same directory as the script you will use to interact with the RETS.
+                </p>
+            </article>
+        </section>
+        <section id="Create_Database_Tables" class="main-section">
+            <header>Create Database Tables</header>
+            <article>
+                <p>Assuming we already have setup a local database, we first need we need to set up the following tables.
+                    <ul>
+                        <li><strong>tbl_listings</strong> - will hold various fields of data for each property listing</li>
+                        <li><strong>tbl_media</strong> - will hold links to photos associated with records found in tbl_listings</li>
+                    </ul>
+                </p>
+                <p>For <strong>tbl_listings</strong>, we will need to create table field for each RETS resource field we want to be able to store.  We also must use a unique identifier field for the RETS "Property" resource.  In our example, that field is named "Listing_ID".  See below for the SQL statement used to create the most basic fields in <strong>tbl_listings</strong>.  For simplicity, we will make all of our fields type of varchar(255) to hold text information.
+                    <code>
+CREATE TABLE tbl_listings (
+  L_AskingPrice varchar(255),
+  L_AddressNumber varchar(255),
+  L_AddressDirection varchar(255),
+  L_AddressStreet varchar(255),
+  L_City varchar(255),
+  L_State varchar(255),
+  L_Zip varchar(255),
+  L_SquareFeet varchar(255),
+  L_NumAcres varchar(255)
+);
+                    </code>
+                    </p>
+                </article>
+            </section>
+            <section id="Interacting_with_RETS"class="main-section">
+                <header>Interacting with RETS</header>
+                <article>
+                    <p>Now that we have our local database setup, we can now start writing code to interacted with the RETS.  We need to define the steps of updating our database tables.  For each table, we will repeat the following:
+                        <ul>
+                            <li>Connect to the RETS</li>
+                            <li>Query the applicable RETS table</li>
+                            <li>Update applicable local database table</li>
+                            <li>Disconnect from the RETS</li>
+                        </ul>
+                    </p>
+                    <p>We will create two functions for connecting to and disconnecting from the RETS. Below is a PHP function to make the connection to the RETS.  Notice we store all the login information within this function.
+                        <code>
+function create_rets_conn() {
+  $rets_login_url = "https://your_rets.com/login?rets-version=rets/1.5";
+  $rets_username = "your_rets_username";
+  $rets_password = "your_rets_password";
+
+  global $rets, $connect;
+  $rets = new phRETS;
+  $rets->SetParam("offset_support", true);
+  $connect = $rets->Connect($rets_login_url, $rets_username, $rets_password);
+  if (!$connect) {
+    echo "+ Unable to connect to RETS:\r\n";
+    print_r($rets->Error());
+    rets_disconnect();
+    exit;
+  }
+}
+                    </code>
+                        It is very important to always disconnect from each RETS connection when you are done, so as not to tie up any resources for other users.  Use the PHP function below to close an existing RETS connection.
+                        <code>
+function rets_disconnect() {
+  global $rets, $connect;
+  $rets->Disconnect();
+  $rets = null;
+  $connect = null;
+}
+                    </code>
+                    </p>
+                </article>
+            </section>
+            <section id="Running_a_RETS_Query" class="main-section">
+                <header>Running a RETS Query</header>
+                <article>
+                    <p>Actually pulling data from the RETS is our next goal.  We create a generic function to be able to pull both listings and media data.</p>
+                    <p>Here is a list and brief description of the function's parameters:
+                        <ul>
+                            <li><strong>$resource</strong> - RETS resource table (Property or Media)</li>
+                            <li><strong>$class</strong> - classification type (i.e. Residential, Commerical, etc...)</li>
+                            <li><strong>$rets_timefield</strong> - RETS field name storing each record's last update date/time</li>
+                            <li><strong>$last_pull</strong> - typically this is the last date/time the RETS update occurred</li>
+                            <li><strong>$fields</strong> - comma separated string of database/RETS fields</li>
+                            <li><strong>$db_table</strong> - name of local database table</li>
+                            <li<strong>$uniqueID</strong> - A unique ID for each resource</li>
+                        </ul>
+                        <strong>NOTE:</strong> <em>To avoid writing code to add new records and update existing records of the same uniqueID, we instead delete each uniqueID before inserting the record into the table.  For new records, the DELETE statement is unnessary,
+                            but it simplies the logic of trying to determine whether a record needs to be add vs. just updated.</em>
+                            <code>
+function get_RETS_data($resource, $class, $rets_timefield, $last_pull, $fields, $db_table, $uniqueID) {
+  global $rets, $connect;
+  $fields_array = explode(",",$fields);
+  $sql = "";
+  create_rets_conn();
+  $query = "({$rets_timefield}={$last_pull}+)";
+  $search = $rets->SearchQuery($resource, $class, $query,
+  array("Format" =>"COMPACT", "Select" => $fields));
+
+  if ($rets->NumRows($search) > 0) {
+    $insert_sql = "INSERT INTO ".$db_table." (".$fields.") VALUES ";
+    $delete_sql = "DELETE FROM ".$db_table." WHERE ".$uniqueID." = '";
+    while ($record = $rets->FetchRow($search)) {
+      $temp_sql = "";
+      $temp_sql = $temp_sql.$delete_sql.$record[$fields_array[0]]."';".chr(13).chr(10);
+      $temp_sql = $temp_sql.$insert_sql;
+      for ($index=0;$index < count($fields_array);$index++) {
+        $temp_sql = $temp_sql."'".$record[$fields_array[$index]]."',";
+      }
+      $sql = $sql.substr($temp_sql, 0, strlen($temp_sql) - 1).";".chr(13).chr(10);
+    }
+    $rets->FreeResult($search);
+  }
+  rets_disconnect();
+  return $sql;
+}
+                        </code>
+
+                        </p>
+                    </article>
+                </section>
+
+
+                <section id="Updating_the_Database_Records" class="main-section">
+                    <header>Updating the Database Records</header>
+                    <article>
+                        <p>Now that we have created SQL statements based on queries perfromed against the RETS in the previous function, we now need a way to execute the <strong>$sql</strong> string.  With all the relative
+                            information about the database we are using contained within the function, we can simply call this function on any sql returned from the previous function to update the appropriate database table.
+                            <code>
+function execute_sql($thesql) {
+  $sql_server = 'sql_server_ip_port_and_name';
+  $uid = 'your_sql_username';
+  $pw = 'your_sql_password';
+  $local_db_name = 'your_local_db_name';
+  $strConn = 'Provider=SQLOLEDB;DRIVER={SQLServer};SERVER='.$sql_server.';UID='
+   .$uid.';PWD='.$pw.';DATABASE='.$local_db_name;
+  if (!$conn_go = new COM("ADODB.Connection"))
+    exit("Unable to create an ADODB connection");
+  $conn_go->open($strConn);
+  $rs_go = $conn_go->execute($thesql);
+  $rs_go = null;
+  $conn_go->Close();
+}
+</code>
+                        </p>
+                    </article>
+                </section>
+
+                <section id="Putting_it_all_Together" class="main-section">
+                    <header>Putting it all Together</header>
+                    <article>
+                        <p>In our example below, we make use of all the functions to implement updates to both database tables.<br>
+
+                            <code>
+require_once("phrets.php");
+  $last_pull = "2017-02-13T17:36:00"; // last date/time RETS pull performed
+
+  // listings data pull
+  $fields = "L_ListingID,L_AskingPrice,L_AddressNumber,L_AddressDirection,";
+  $fields = $fields."L_AddressStreet,L_City,L_State,L_Zip,L_SquareFeet,L_NumAcres";
+  $sql = get_RETS_data("Property", "RE_1", "L_UpdateDate", $last_pull, $fields, "tbl_listings", "Listing_ID");
+  if ($sql != "") {
+    execute_sql($sql);
+  }
+
+  // media data pull
+  $fields = "MED_listing_media_id,L_ListingID,MED_sequence,MED_update_dt,MED_media_url";
+  $sql = get_RETS_data("Media", "RE_1", "MED_update_dt", $last_pull, $fields, "tbl_media", "MED_listing_media_id");
+  if ($sql != "") {
+    execute_sql($sql);
+  }
+}
+                            </code>
+                            </p>
+                        </article>
+                    </section>
+                </main>
+                <script src="../utils.js"></script>
+            </body>
+            </html>
